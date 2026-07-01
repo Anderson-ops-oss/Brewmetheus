@@ -20,8 +20,9 @@ from brewmetheus.models import Incident, IntakeEvent, Severity, UserProfile
 from brewmetheus.params import derive_params
 from brewmetheus.pk_model import concentration_curve
 from brewmetheus.predict import crash_time_h, refill_window_h, sleep_forecast
+from brewmetheus.slo import day_slo
 from brewmetheus.store import FileStore
-from brewmetheus.timeutil import resolve_sleep_offset, to_offsets
+from brewmetheus.timeutil import day_window_offsets, resolve_sleep_offset, to_offsets
 
 STANDARD_DOSE_MG = 95.0  # a drip coffee, used for the refill suggestion
 MODEL_WINDOW_H = 48.0  # how far back to pull intakes for modeling
@@ -81,6 +82,10 @@ def _sidebar_profile(store: FileStore) -> UserProfile:
         daily_cap_mg=st.sidebar.number_input(
             "Daily cap (mg)", 100.0, 1000.0, current.daily_cap_mg, step=10.0
         ),
+        clarity_sla_target=st.sidebar.slider(
+            "Clarity SLA target", 0.5, 1.0, current.clarity_sla_target, step=0.01
+        ),
+        wake_time_local=st.sidebar.time_input("Wake time", current.wake_time_local),
         sleep_time_local=st.sidebar.time_input("Bedtime", current.sleep_time_local),
         timezone=st.sidebar.text_input("Timezone (IANA)", current.timezone),
     )
@@ -176,6 +181,50 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
     )
 
 
+def _slo_section(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> None:
+    st.subheader("Reliability (SLO)")
+    if profile.sleep_time_local <= profile.wake_time_local:
+        st.info("Set bedtime later than wake time to compute the SLO.")
+        return
+
+    now = datetime.now(timezone.utc)
+    wake_h, sleep_h = day_window_offsets(
+        profile.wake_time_local, profile.sleep_time_local, profile.timezone, now
+    )
+    events = store.get_recent_intakes(within_h=MODEL_WINDOW_H, now=now)
+    intakes = to_offsets(events, reference=now)
+    params = derive_params(profile)
+    report = day_slo(
+        intakes, params, wake_h, sleep_h, profile.awake_threshold_mg_l, profile.clarity_sla_target
+    )
+
+    sla_pct = report.uptime_ratio * 100
+    target_pct = report.sla_target * 100
+    if report.sla_met:
+        st.success(f"SLA met — {sla_pct:.1f}% ≥ {target_pct:.0f}% target")
+    else:
+        st.error(f"SLA breached — {sla_pct:.1f}% < {target_pct:.0f}% target")
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Clarity SLA (today)", f"{sla_pct:.1f}%", delta=f"{sla_pct - target_pct:+.1f} pts")
+    col2.metric("P1 incidents", report.incident_count)
+    col3.metric("Error budget left", f"{report.budget_remaining_h * 60:.0f} min")
+
+    mttr_txt = f"{report.mttr_h * 60:.0f} min" if report.mttr_h is not None else "—"
+    st.caption(
+        f"MTTR {mttr_txt} · avg concentration {report.avg_mg_l:.2f} mg/L over the waking window."
+    )
+
+    if report.crashes:
+        st.write("**Incident log (P1):**")
+        for i, crash in enumerate(report.crashes, start=1):
+            start = _offset_to_clock(crash.start_h, now, tz)
+            end = _offset_to_clock(crash.end_h, now, tz)
+            st.write(f"{i}. {start}–{end} · down {crash.duration_h * 60:.0f} min")
+    else:
+        st.write("**No P1 incidents today — all systems operational.**")
+
+
 def _history_section(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> None:
     st.subheader("History")
     today = datetime.now(timezone.utc).astimezone(tz).date()
@@ -219,6 +268,7 @@ def main() -> None:
 
     _intake_form(store)
     _live_dashboard(store, profile, tz)
+    _slo_section(store, profile, tz)
     _history_section(store, profile, tz)
     _recent_intakes(store, tz)
 

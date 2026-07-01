@@ -4,7 +4,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from brewmetheus.models import IntakeEvent
-from brewmetheus.timeutil import resolve_sleep_offset, to_offsets
+from brewmetheus.timeutil import day_window_offsets, resolve_sleep_offset, to_offsets
 
 
 def test_to_offsets_past_events_are_negative() -> None:
@@ -27,3 +27,11 @@ def test_resolve_sleep_offset_rolls_to_tomorrow() -> None:
     # Bedtime already passed today -> next 23:30 is tomorrow (~23.75 h away).
     now = datetime(2026, 7, 1, 23, 45, tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(timezone.utc)
     assert resolve_sleep_offset(time(23, 30), "Asia/Shanghai", now) == pytest.approx(23.75)
+
+
+def test_day_window_offsets_relative_to_now() -> None:
+    # now = 12:00 local; wake 07:00 is 5 h ago, sleep 23:00 is 11 h ahead.
+    now = datetime(2026, 7, 1, 12, 0, tzinfo=ZoneInfo("Asia/Shanghai")).astimezone(timezone.utc)
+    wake_h, sleep_h = day_window_offsets(time(7, 0), time(23, 0), "Asia/Shanghai", now)
+    assert wake_h == pytest.approx(-5.0)
+    assert sleep_h == pytest.approx(11.0)
