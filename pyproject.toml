@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "brewmetheus"
+version = "0.1.0"
+description = "An over-engineered caffeine pharmacokinetics dashboard: model blood caffeine, predict crashes, refill windows, and pre-sleep residual."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "Anderson", email = "u3606584@connect.hku.hk" }]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "streamlit>=1.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "pandas-stubs",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["brewmetheus"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+# pycodestyle, pyflakes, isort, pyupgrade, flake8-bugbear, flake8-simplify
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+# Matches the conda env; numpy 2.x stubs use PEP 695 `type` statements (3.12+).
+# Cross-version (3.10+) compatibility is still enforced by ruff's pyupgrade rules.
+python_version = "3.12"
+strict = true
+warn_unused_configs = true
+
+# Third-party libraries that ship no type stubs.
+[[tool.mypy.overrides]]
+module = ["scipy.*", "streamlit.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
