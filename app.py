@@ -1,10 +1,3 @@
-"""Streamlit dashboard for Brewmetheus.
-
-The boundary layer: it owns the store, converts datetimes to the float-hours
-core (via timeutil), runs model / predict / alerts, and renders the result.
-For entertainment and learning only -- not health advice.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
@@ -16,10 +9,11 @@ import streamlit as st
 
 from brewmetheus.alerts import evaluate_incidents, primary_incident
 from brewmetheus.beverages import BEVERAGES, caffeine_for
-from brewmetheus.models import Incident, IntakeEvent, Severity, UserProfile
+from brewmetheus.models import Incident, IntakeEvent, Severity, SLOReport, UserProfile
 from brewmetheus.params import derive_params
 from brewmetheus.pk_model import concentration_curve
 from brewmetheus.predict import crash_time_h, refill_window_h, sleep_forecast
+from brewmetheus.render import render_badge, render_card
 from brewmetheus.slo import day_slo
 from brewmetheus.store import FileStore
 from brewmetheus.timeutil import day_window_offsets, resolve_sleep_offset, to_offsets
@@ -181,22 +175,24 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
     )
 
 
-def _slo_section(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> None:
-    st.subheader("Reliability (SLO)")
+def _compute_today_slo(store: FileStore, profile: UserProfile, now: datetime) -> SLOReport | None:
     if profile.sleep_time_local <= profile.wake_time_local:
-        st.info("Set bedtime later than wake time to compute the SLO.")
-        return
-
-    now = datetime.now(timezone.utc)
+        return None
     wake_h, sleep_h = day_window_offsets(
         profile.wake_time_local, profile.sleep_time_local, profile.timezone, now
     )
-    events = store.get_recent_intakes(within_h=MODEL_WINDOW_H, now=now)
-    intakes = to_offsets(events, reference=now)
+    intakes = to_offsets(store.get_recent_intakes(within_h=MODEL_WINDOW_H, now=now), reference=now)
     params = derive_params(profile)
-    report = day_slo(
+    return day_slo(
         intakes, params, wake_h, sleep_h, profile.awake_threshold_mg_l, profile.clarity_sla_target
     )
+
+
+def _slo_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
+    st.subheader("Reliability (SLO)")
+    if report is None:
+        st.info("Set bedtime later than wake time to compute the SLO.")
+        return
 
     sla_pct = report.uptime_ratio * 100
     target_pct = report.sla_target * 100
@@ -223,6 +219,19 @@ def _slo_section(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> None:
             st.write(f"{i}. {start}–{end} · down {crash.duration_h * 60:.0f} min")
     else:
         st.write("**No P1 incidents today — all systems operational.**")
+
+
+def _share_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
+    st.subheader("Shareable status")
+    if report is None:
+        return
+    subtitle = now.astimezone(tz).strftime("%Y-%m-%d")
+    badge = render_badge(report)
+    card = render_card(report, subtitle=subtitle)
+    st.html(badge)
+    st.html(card)
+    st.download_button("Download SLA badge (SVG)", badge, "caffeine-sla.svg", "image/svg+xml")
+    st.download_button("Download status card (SVG)", card, "caffeine-card.svg", "image/svg+xml")
 
 
 def _history_section(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> None:
@@ -268,7 +277,10 @@ def main() -> None:
 
     _intake_form(store)
     _live_dashboard(store, profile, tz)
-    _slo_section(store, profile, tz)
+    now = datetime.now(timezone.utc)
+    report = _compute_today_slo(store, profile, now)
+    _slo_section(report, now, tz)
+    _share_section(report, now, tz)
     _history_section(store, profile, tz)
     _recent_intakes(store, tz)
 

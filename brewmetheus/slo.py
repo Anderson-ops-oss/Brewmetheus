@@ -1,11 +1,3 @@
-"""SRE-style reliability metrics for one waking window (feature: SLO gags).
-
-Treats the body as a service: during the waking window [wake, sleep], being at
-or above the awake threshold is "up", below it is "down" (a P1 incident). All
-functions are pure and work in float hours, like pk_model / predict; the caller
-converts a calendar day + local wake/sleep clock times into offsets.
-"""
-
 from __future__ import annotations
 
 from collections.abc import Iterable
