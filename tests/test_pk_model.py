@@ -1,8 +1,10 @@
 # test script for pk_model.py
 
 import math
+
 import numpy as np
 import pytest
+
 from brewmetheus.models import PKParams
 from brewmetheus.pk_model import (
     auc,

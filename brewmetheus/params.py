@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import math
+
 from brewmetheus.models import PKParams, UserProfile
 
 # Half-life modifiers (multiplicative). See the plan's defaults table.
