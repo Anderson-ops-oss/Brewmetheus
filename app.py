@@ -266,10 +266,7 @@ def _recent_intakes(store: FileStore, tz: ZoneInfo) -> None:
 def main() -> None:
     st.set_page_config(page_title="Brewmetheus", page_icon="☕")
     st.title("☕ Brewmetheus")
-    st.caption(
-        "Blood-caffeine monitoring, taken far too seriously. "
-        "For entertainment and learning only — not health advice."
-    )
+    st.caption("Blood-caffeine monitoring, taken far too seriously.")
 
     store = get_store()
     profile = _sidebar_profile(store)
