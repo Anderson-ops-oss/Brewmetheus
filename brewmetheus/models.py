@@ -59,7 +59,9 @@ class UserProfile:
     clarity_sla_target: float = DEFAULT_CLARITY_SLA_TARGET  # SLO target for the waking window
     wake_time_local: time = time(7, 0)
     sleep_time_local: time = time(23, 30)
-    timezone: str = "UTC"  # IANA name, e.g. "Asia/Hong Kong"
+    timezone: str = "UTC"  # IANA name, e.g. "Asia/Hong_Kong"
+    # notifications
+    ntfy_topic: str | None = None  # ntfy.sh topic for mobile push; None disables
 
 
 @dataclass

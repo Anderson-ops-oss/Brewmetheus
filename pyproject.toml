@@ -15,6 +15,7 @@ dependencies = [
     "scipy>=1.10",
     "pandas>=2.0",
     "streamlit>=1.30",
+    "tzlocal>=5.0",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +46,7 @@ warn_unused_configs = true
 
 # Third-party libraries that ship no type stubs.
 [[tool.mypy.overrides]]
-module = ["scipy.*"]
+module = ["scipy.*", "tzlocal.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

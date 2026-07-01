@@ -10,6 +10,7 @@ import streamlit as st
 from brewmetheus.alerts import evaluate_incidents, primary_incident
 from brewmetheus.beverages import BEVERAGES, caffeine_for
 from brewmetheus.models import Incident, IntakeEvent, Severity, SLOReport, UserProfile
+from brewmetheus.notify import send_ntfy
 from brewmetheus.params import derive_params
 from brewmetheus.pk_model import concentration_curve
 from brewmetheus.predict import crash_time_h, refill_window_h, sleep_forecast
@@ -82,6 +83,8 @@ def _sidebar_profile(store: FileStore) -> UserProfile:
         wake_time_local=st.sidebar.time_input("Wake time", current.wake_time_local),
         sleep_time_local=st.sidebar.time_input("Bedtime", current.sleep_time_local),
         timezone=st.sidebar.text_input("Timezone (IANA)", current.timezone),
+        ntfy_topic=st.sidebar.text_input("ntfy topic (mobile push)", current.ntfy_topic or "")
+        or None,
     )
     if st.sidebar.button("Save profile"):
         store.save_profile(profile)
@@ -234,6 +237,29 @@ def _share_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> Non
     st.download_button("Download status card (SVG)", card, "caffeine-card.svg", "image/svg+xml")
 
 
+def _notify_section(profile: UserProfile) -> None:
+    st.subheader("Mobile push (ntfy)")
+    if not profile.ntfy_topic:
+        st.caption(
+            "Set an ntfy topic in the sidebar, subscribe to it in the ntfy app, then test here."
+        )
+        return
+    st.caption(
+        f"Topic: `{profile.ntfy_topic}` — subscribe to it in the ntfy app to receive pushes."
+    )
+    if st.button("Send test push"):
+        try:
+            status = send_ntfy(
+                profile.ntfy_topic,
+                "Brewmetheus test",
+                "If this reached your phone, push notifications work.",
+                tags="coffee",
+            )
+            st.success(f"Sent (HTTP {status}).")
+        except Exception as exc:  # surface any delivery error to the user
+            st.error(f"Failed to send: {exc}")
+
+
 def _history_section(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> None:
     st.subheader("History")
     today = datetime.now(timezone.utc).astimezone(tz).date()
@@ -278,6 +304,7 @@ def main() -> None:
     report = _compute_today_slo(store, profile, now)
     _slo_section(report, now, tz)
     _share_section(report, now, tz)
+    _notify_section(profile)
     _history_section(store, profile, tz)
     _recent_intakes(store, tz)
 

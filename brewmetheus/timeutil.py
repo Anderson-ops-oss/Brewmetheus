@@ -7,6 +7,16 @@ from zoneinfo import ZoneInfo
 from brewmetheus.models import IntakeEvent
 
 
+def local_timezone_name() -> str:
+    """Best-effort IANA name of the machine's local timezone; 'UTC' if unknown."""
+    try:
+        from tzlocal import get_localzone_name
+
+        return get_localzone_name() or "UTC"
+    except Exception:
+        return "UTC"
+
+
 def to_offsets(events: Iterable[IntakeEvent], reference: datetime) -> list[tuple[float, float]]:
     """Convert intake events into (t_offset_h, dose_mg) pairs relative to ``reference``.
 

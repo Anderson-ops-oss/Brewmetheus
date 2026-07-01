@@ -11,6 +11,7 @@ from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from brewmetheus.models import IntakeEvent, UserProfile
+from brewmetheus.timeutil import local_timezone_name
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS intake (
@@ -119,7 +120,8 @@ class FileStore:
     # --- profile (JSON) ---
     def load_profile(self) -> UserProfile:
         if not self.profile_path.exists():
-            return UserProfile()  # first-run default
+            # First run: adopt the machine's local timezone so times display locally.
+            return UserProfile(timezone=local_timezone_name())
         with open(self.profile_path, encoding="utf-8") as fh:
             return _profile_from_dict(json.load(fh))
 
