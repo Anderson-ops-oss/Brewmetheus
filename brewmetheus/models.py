@@ -16,6 +16,7 @@ DEFAULT_WEIGHT_KG = 70.0  # typical healthy adult
 DEFAULT_AWAKE_THRESHOLD_MG_L = 1.5  # subjective product knob, not medical
 DEFAULT_INSOMNIA_THRESHOLD_MG_L = 2.0  # subjective product knob, not medical
 DEFAULT_DAILY_CAP_MG = 400.0  # common adult advised ceiling
+DEFAULT_CLARITY_SLA_TARGET = 0.9  # SRE-meme uptime target for the waking window
 
 
 @dataclass
@@ -55,6 +56,8 @@ class UserProfile:
     sleep_insomnia_threshold_mg_l: float = DEFAULT_INSOMNIA_THRESHOLD_MG_L
     safe_ceiling_mg_l: float | None = None
     daily_cap_mg: float = DEFAULT_DAILY_CAP_MG
+    clarity_sla_target: float = DEFAULT_CLARITY_SLA_TARGET  # SLO target for the waking window
+    wake_time_local: time = time(7, 0)
     sleep_time_local: time = time(23, 30)
     timezone: str = "UTC"  # IANA name, e.g. "Asia/Hong Kong"
 
@@ -111,3 +114,33 @@ class SleepForecast:
     residual_mg_l: float
     insomnia_risk: bool
     sleep_h: float
+
+
+@dataclass
+class CrashInterval:
+    """A contiguous stretch below the awake threshold -- one "P1 incident"."""
+
+    start_h: float
+    end_h: float
+
+    @property
+    def duration_h(self) -> float:
+        return self.end_h - self.start_h
+
+
+@dataclass
+class SLOReport:
+    """SRE-style reliability metrics over one waking window (all float hours)."""
+
+    waking_h: float
+    uptime_ratio: float  # 0..1: fraction of the waking window above the awake threshold
+    downtime_h: float
+    crashes: list[CrashInterval]
+    incident_count: int
+    mttr_h: float | None  # mean time to recovery (mean crash duration); None if no crashes
+    mtbf_h: float | None  # mean time between failures (mean uptime gap); None if < 2 crashes
+    error_budget_h: float  # allowed downtime = (1 - sla_target) * waking_h
+    budget_remaining_h: float  # error_budget_h - downtime_h (negative == over budget)
+    avg_mg_l: float
+    sla_target: float
+    sla_met: bool

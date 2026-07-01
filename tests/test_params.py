@@ -1,5 +1,7 @@
 import math
+
 import pytest
+
 from brewmetheus.models import UserProfile
 from brewmetheus.params import (
     ORAL_CONTRACEPTIVE_HALF_LIFE_FACTOR,

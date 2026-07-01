@@ -1,8 +1,11 @@
 from __future__ import annotations
+
 import math
 from collections.abc import Iterable
+
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
+
 from brewmetheus.models import PKParams
 
 FloatArray = NDArray[np.float64]
