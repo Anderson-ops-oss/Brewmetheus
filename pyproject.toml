@@ -26,6 +26,9 @@ dev = [
     "pandas-stubs",
 ]
 
+[project.scripts]
+brewmetheus = "brewmetheus.cli:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["brewmetheus"]
 
