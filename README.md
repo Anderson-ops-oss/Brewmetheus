@@ -115,7 +115,3 @@ mypy brewmetheus                # strict type checking
 pytest -q                       # tests
 ```
 
-## Status
-
-A weekend-scale toy project — a serious model behind a deliberately absurd
-premise. Built for fun and for learning pharmacokinetics.
