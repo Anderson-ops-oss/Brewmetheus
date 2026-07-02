@@ -51,16 +51,15 @@ pip install -e ".[dev]"
 
 ## Run
 
-```bash
-streamlit run app.py
-```
-
-On first launch Streamlit may prompt for an email; press Enter to skip, or run
-headless to bypass it:
+After `pip install -e .` the `brewmetheus` command launches the dashboard:
 
 ```bash
-streamlit run app.py --server.headless=true
+brewmetheus                       # equivalent to: streamlit run app.py
+brewmetheus --server.headless=true   # skip the first-run email prompt
 ```
+
+Extra arguments are forwarded to Streamlit. You can also run it directly with
+`streamlit run app.py`.
 
 Then open the printed URL (default http://localhost:8501). Set your weight,
 timezone, wake/bed times, and thresholds in the sidebar, and start logging
