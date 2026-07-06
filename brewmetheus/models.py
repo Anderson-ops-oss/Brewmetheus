@@ -160,3 +160,30 @@ class GoldenSignals:
     traffic_mg: float  # caffeine ingested today
     errors_h: float  # time below the awake threshold so far today
     saturation_ratio: float  # daily total / daily cap
+
+
+@dataclass
+class Snapshot:
+    """A point-in-time reading of the caffeine service, for the Prometheus exporter.
+
+    The single source of truth shared by the notifier and the exporter (see
+    ``snapshot.build_snapshot``). Optional fields are None when the waking window or a
+    prediction is unavailable, and the corresponding metric is then omitted.
+    """
+
+    blood_caffeine_mg_l: float
+    awake_threshold_mg_l: float
+    insomnia_threshold_mg_l: float
+    bedtime_residual_mg_l: float
+    daily_total_mg: float
+    daily_cap_mg: float
+    effective_half_life_h: float
+    lifetime_intake_mg: float
+    severity: Severity
+    incident_code: str
+    incidents: list[Incident]
+    version: str
+    clarity_sla_ratio: float | None = None
+    error_budget_remaining_h: float | None = None
+    burn_rate: float | None = None
+    time_to_crash_h: float | None = None

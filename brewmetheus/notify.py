@@ -19,17 +19,13 @@ import argparse
 import sys
 import time
 import urllib.request
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
-from brewmetheus.alerts import evaluate_incidents, primary_incident
+from brewmetheus.alerts import primary_incident
 from brewmetheus.models import Incident, Severity
-from brewmetheus.params import derive_params
+from brewmetheus.snapshot import build_snapshot
 from brewmetheus.store import FileStore
-from brewmetheus.timeutil import resolve_sleep_offset, to_offsets
 
 _DEFAULT_SERVER = "https://ntfy.sh"
-_MODEL_WINDOW_H = 48.0
 _DEFAULT_LOOP_INTERVAL_S = 180.0  # 3 min; under the "must notice within 5 min" target
 
 # ntfy (priority, emoji tag) per severity.
@@ -106,15 +102,8 @@ def notify_incidents(
 
 
 def _current_incidents(store: FileStore) -> list[Incident]:
-    """Evaluate incidents for right now (the same boundary wiring the app uses)."""
-    profile = store.load_profile()
-    now = datetime.now(timezone.utc)
-    intakes = to_offsets(store.get_recent_intakes(within_h=_MODEL_WINDOW_H, now=now), reference=now)
-    params = derive_params(profile)
-    sleep_h = resolve_sleep_offset(profile.sleep_time_local, profile.timezone, now)
-    today = now.astimezone(ZoneInfo(profile.timezone)).date()
-    daily_total = store.daily_total_mg(today, profile)
-    return evaluate_incidents(intakes, params, profile, sleep_h, current_daily_total_mg=daily_total)
+    """Evaluate incidents for right now (shared with the exporter via build_snapshot)."""
+    return build_snapshot(store).incidents
 
 
 def run_notify_loop(
