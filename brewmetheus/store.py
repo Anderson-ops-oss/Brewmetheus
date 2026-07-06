@@ -39,6 +39,7 @@ class Store(Protocol):
     def daily_totals_mg(
         self, days: int, end_local_date: date, profile: UserProfile
     ) -> list[tuple[date, float]]: ...
+    def lifetime_total_mg(self) -> float: ...
 
 
 # --- serialization helpers ---
@@ -198,3 +199,11 @@ class FileStore:
             day = end_local_date - timedelta(days=offset)
             result.append((day, self.daily_total_mg(day, profile)))
         return result
+
+    def lifetime_total_mg(self) -> float:
+        """Cumulative caffeine (mg) across every logged intake (the exporter's counter)."""
+        with self._cursor() as conn:
+            row = conn.execute(
+                "SELECT COALESCE(SUM(caffeine_mg), 0.0) AS total FROM intake"
+            ).fetchone()
+        return float(row["total"])
