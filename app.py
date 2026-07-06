@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 from brewmetheus.alerts import evaluate_incidents, primary_incident
@@ -143,16 +144,37 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
 
     grid = np.linspace(0.0, FORECAST_HORIZON_H, int(FORECAST_HORIZON_H * 12) + 1)
     curve = concentration_curve(grid, intakes, params)
-    index = pd.DatetimeIndex([now + timedelta(hours=float(h)) for h in grid]).tz_convert(tz)
-    frame = pd.DataFrame(
-        {
-            "caffeine (mg/L)": curve,
-            "awake": profile.awake_threshold_mg_l,
-            "insomnia": profile.sleep_insomnia_threshold_mg_l,
-        },
-        index=index,
+    times = [(now + timedelta(hours=float(h))).astimezone(tz).replace(tzinfo=None) for h in grid]
+
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=times, y=curve, mode="lines", name="caffeine (mg/L)"))
+    fig.add_trace(
+        go.Scatter(
+            x=times,
+            y=[profile.awake_threshold_mg_l] * len(times),
+            mode="lines",
+            name="awake",
+            line={"dash": "dot"},
+        )
     )
-    st.line_chart(frame)
+    fig.add_trace(
+        go.Scatter(
+            x=times,
+            y=[profile.sleep_insomnia_threshold_mg_l] * len(times),
+            mode="lines",
+            name="insomnia",
+            line={"dash": "dot"},
+        )
+    )
+    fig.update_layout(
+        hovermode="x unified",
+        yaxis_title="mg/L",
+        margin={"l": 0, "r": 0, "t": 10, "b": 0},
+        height=320,
+        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0},
+    )
+    fig.update_xaxes(tickformat="%m-%d %H:%M", hoverformat="%m-%d %H:%M")
+    st.plotly_chart(fig)
 
     st.subheader("Predictions")
     crash = crash_time_h(intakes, params, profile.awake_threshold_mg_l)
