@@ -5,8 +5,8 @@ from collections.abc import Iterable
 import numpy as np
 from numpy.typing import NDArray
 
-from brewmetheus.models import CrashInterval, PKParams, SLOReport
-from brewmetheus.pk_model import concentration_curve
+from brewmetheus.models import CrashInterval, GoldenSignals, PKParams, SLOReport
+from brewmetheus.pk_model import concentration_curve, tmax_h
 
 FloatArray = NDArray[np.float64]
 
@@ -33,6 +33,16 @@ def _crash_intervals(times: FloatArray, curve: FloatArray, threshold: float) -> 
     return intervals
 
 
+def _downtime_before(crashes: list[CrashInterval], cutoff_h: float) -> float:
+    """Total downtime within crash intervals up to ``cutoff_h`` (downtime consumed so far)."""
+    total = 0.0
+    for crash in crashes:
+        end = min(crash.end_h, cutoff_h)
+        if end > crash.start_h:
+            total += end - crash.start_h
+    return total
+
+
 def day_slo(
     intakes: Iterable[tuple[float, float]],
     params: PKParams,
@@ -40,11 +50,17 @@ def day_slo(
     sleep_h: float,
     awake_threshold: float,
     sla_target: float,
+    now_h: float | None = None,
 ) -> SLOReport:
     """Reliability report over the waking window ``[wake_h, sleep_h]``.
 
     ``intakes`` should already include any carry-over doses from before ``wake_h``
     (their offsets are simply negative relative to the same reference).
+
+    When ``now_h`` is given, the report also carries the "so far" burn-rate view:
+    downtime consumed over ``[wake_h, now_h]``, the error-budget burn rate (actual
+    downtime fraction so far / the allowed fraction), and a projected exhaustion time
+    if the budget would run out before bed at the current rate.
     """
     if sleep_h <= wake_h:
         raise ValueError("sleep_h must be after wake_h.")
@@ -67,6 +83,24 @@ def day_slo(
         mtbf_h = None
 
     error_budget_h = (1.0 - sla_target) * waking_h
+
+    downtime_so_far_h: float | None = None
+    burn_rate: float | None = None
+    budget_exhaustion_h: float | None = None
+    if now_h is not None:
+        cutoff = min(max(now_h, wake_h), sleep_h)
+        elapsed_h = cutoff - wake_h
+        downtime_so_far_h = _downtime_before(crashes, cutoff)
+        allowed_ratio = 1.0 - sla_target  # sustainable downtime fraction
+        if elapsed_h > 0 and allowed_ratio > 0:
+            burn_rate = (downtime_so_far_h / elapsed_h) / allowed_ratio
+            rate_per_h = downtime_so_far_h / elapsed_h
+            remaining = error_budget_h - downtime_so_far_h
+            if rate_per_h > 0 and remaining > 0:
+                projected = cutoff + remaining / rate_per_h
+                if projected <= sleep_h:  # only if the budget runs out before bed
+                    budget_exhaustion_h = projected
+
     return SLOReport(
         waking_h=waking_h,
         uptime_ratio=uptime_ratio,
@@ -80,4 +114,27 @@ def day_slo(
         avg_mg_l=float(curve.mean()),
         sla_target=sla_target,
         sla_met=uptime_ratio >= sla_target,
+        downtime_so_far_h=downtime_so_far_h,
+        burn_rate=burn_rate,
+        budget_exhaustion_h=budget_exhaustion_h,
+    )
+
+
+def golden_signals(
+    params: PKParams,
+    daily_total_mg: float,
+    daily_cap_mg: float,
+    downtime_so_far_h: float,
+) -> GoldenSignals:
+    """The four SRE golden signals mapped onto the caffeine service.
+
+    Pure: every input is already computed elsewhere (Tmax from the model, the daily
+    total and cap from the profile/store, the downtime so far from ``day_slo``).
+    """
+    saturation = daily_total_mg / daily_cap_mg if daily_cap_mg > 0 else 0.0
+    return GoldenSignals(
+        latency_h=tmax_h(params),
+        traffic_mg=daily_total_mg,
+        errors_h=downtime_so_far_h,
+        saturation_ratio=saturation,
     )

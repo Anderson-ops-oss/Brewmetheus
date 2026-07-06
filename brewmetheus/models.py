@@ -146,3 +146,17 @@ class SLOReport:
     avg_mg_l: float
     sla_target: float
     sla_met: bool
+    # Burn-rate view, populated only when ``day_slo`` is given a ``now_h``; else None.
+    downtime_so_far_h: float | None = None  # downtime consumed over [wake, now]
+    burn_rate: float | None = None  # downtime ratio so far / allowed ratio (1 == on track)
+    budget_exhaustion_h: float | None = None  # offset when budget hits zero, if before bed
+
+
+@dataclass
+class GoldenSignals:
+    """The four signals Google's SRE book watches, mapped onto the caffeine service."""
+
+    latency_h: float  # Tmax: time for a dose to reach peak effect
+    traffic_mg: float  # caffeine ingested today
+    errors_h: float  # time below the awake threshold so far today
+    saturation_ratio: float  # daily total / daily cap

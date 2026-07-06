@@ -3,9 +3,10 @@
 import numpy as np
 import pytest
 
-from brewmetheus.models import UserProfile
+from brewmetheus.models import CrashInterval, UserProfile
 from brewmetheus.params import derive_params
-from brewmetheus.slo import _crash_intervals, day_slo
+from brewmetheus.pk_model import tmax_h
+from brewmetheus.slo import _crash_intervals, _downtime_before, day_slo, golden_signals
 
 _TARGET = 0.9
 
@@ -75,3 +76,42 @@ def test_sleep_before_wake_raises() -> None:
     params = derive_params(UserProfile())
     with pytest.raises(ValueError):
         day_slo([], params, 10.0, 5.0, awake_threshold=1.5, sla_target=_TARGET)
+
+
+def test_downtime_before_clips_to_cutoff() -> None:
+    crashes = [CrashInterval(-2.0, -1.0), CrashInterval(1.0, 3.0)]
+    assert _downtime_before(crashes, cutoff_h=0.0) == pytest.approx(1.0)  # only the past one
+    assert _downtime_before(crashes, cutoff_h=2.0) == pytest.approx(2.0)  # 1.0 + (2 - 1)
+    assert _downtime_before(crashes, cutoff_h=10.0) == pytest.approx(3.0)  # both fully
+
+
+def test_burn_rate_is_none_without_now() -> None:
+    params = derive_params(UserProfile())
+    report = day_slo([(-1.0, 150.0)], params, 0.0, 12.0, awake_threshold=1.5, sla_target=_TARGET)
+    assert report.downtime_so_far_h is None
+    assert report.burn_rate is None
+    assert report.budget_exhaustion_h is None
+
+
+def test_burn_rate_high_when_down_early() -> None:
+    params = derive_params(UserProfile())
+    # No caffeine at all; "now" is 2 h into an 8 h waking window -> fully down so far.
+    report = day_slo([], params, -2.0, 6.0, awake_threshold=1.5, sla_target=_TARGET, now_h=0.0)
+    assert report.downtime_so_far_h == pytest.approx(2.0)  # down the whole elapsed 2 h
+    assert report.burn_rate == pytest.approx(10.0)  # 100% down / 10% allowed
+    assert report.budget_exhaustion_h is None  # already over budget, nothing to project
+
+
+def test_golden_signals_map_the_service() -> None:
+    params = derive_params(UserProfile())
+    sig = golden_signals(params, daily_total_mg=200.0, daily_cap_mg=400.0, downtime_so_far_h=0.5)
+    assert sig.latency_h == pytest.approx(tmax_h(params))
+    assert sig.traffic_mg == pytest.approx(200.0)
+    assert sig.errors_h == pytest.approx(0.5)
+    assert sig.saturation_ratio == pytest.approx(0.5)
+
+
+def test_golden_signals_zero_cap_is_safe() -> None:
+    params = derive_params(UserProfile())
+    sig = golden_signals(params, 100.0, 0.0, 0.0)
+    assert sig.saturation_ratio == 0.0
