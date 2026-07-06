@@ -99,6 +99,38 @@ python -m brewmetheus.notify --topic brewmetheus-xyz --min-severity P1
 It evaluates your current incidents and pushes the most severe one if it meets
 the severity bar.
 
+## Scrape your bloodstream (Prometheus)
+
+Brewmetheus is named after a monitoring system. It can also *be* one. A built-in
+exporter exposes your caffeine state as real Prometheus metrics, so you can point
+actual Prometheus at your bloodstream and graph it in Grafana.
+
+```bash
+python -m brewmetheus.exporter              # serves http://127.0.0.1:9110/metrics
+python -m brewmetheus.exporter --port 9111  # any extra port you like
+```
+
+It binds to localhost by default — your plasma is not a public endpoint. The model is
+evaluated at scrape time, so Prometheus samples a live continuous function.
+
+Point Prometheus at it (see `prometheus/prometheus.example.yml`):
+
+```yaml
+scrape_configs:
+  - job_name: brewmetheus
+    static_configs:
+      - targets: ["127.0.0.1:9110"]
+```
+
+Exposed metrics include `brewmetheus_blood_caffeine_mg_per_litre`,
+`brewmetheus_clarity_sla_ratio`, `brewmetheus_error_budget_burn_rate`, a
+`brewmetheus_service_status{severity=...}` enum, and the
+`brewmetheus_caffeine_intake_mg_total` counter (it resets only on data loss — you
+cannot restart your liver). Import `grafana/brewmetheus-dashboard.json` for a ready-made
+dashboard, and load `prometheus/brewmetheus.rules.yml` for alerts whose thresholds track
+your own settings. Brewmetheus has always been named after a monitoring system; now it
+is one.
+
 ## Project structure
 
 ```
@@ -111,16 +143,23 @@ brewmetheus/
 ├── alerts.py       # SRE-style incident engine
 ├── slo.py          # reliability metrics (clarity SLA, MTTR, error budget)
 ├── render.py       # SVG badge / status card
+├── postmortem.py   # blameless postmortem (Markdown)
+├── metrics.py      # Prometheus text exposition (pure)
+├── snapshot.py     # point-in-time service state (shared source of truth)
+├── exporter.py     # Prometheus /metrics HTTP adapter + CLI
 ├── notify.py       # ntfy mobile push + CLI
 ├── store.py        # JSON profile + SQLite log (behind a Store interface)
 └── timeutil.py     # datetime <-> float-hours boundary helpers
 app.py              # Streamlit dashboard
+grafana/            # importable Grafana dashboard
+prometheus/         # example scrape config + alerting rules
 tests/              # property + behavior tests
 ```
 
-The pure core (`pk_model`, `params`, `predict`, `alerts`, `slo`) works in float
-hours and never touches datetimes or I/O; the boundary (`timeutil`, `store`,
-`app`) converts timezones and persists data.
+The pure core (`pk_model`, `params`, `predict`, `alerts`, `slo`, `render`,
+`postmortem`, `metrics`) works in float hours / plain data and never touches datetimes
+or I/O; the boundary (`timeutil`, `store`, `snapshot`, `notify`, `exporter`, `app`)
+converts timezones, persists data, and talks to the network.
 
 ## Development
 
