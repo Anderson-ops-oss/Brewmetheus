@@ -1,0 +1,49 @@
+# Prometheus alerting rules for Brewmetheus.
+#
+# The expressions compare metric-against-metric, so they self-adjust when you change a
+# threshold in the dashboard sidebar -- no rule edits required. Load via `rule_files:`
+# in your prometheus.yml (see prometheus.example.yml).
+groups:
+  - name: brewmetheus
+    rules:
+      - alert: CaffeineServiceDown
+        expr: brewmetheus_blood_caffeine_mg_per_litre < brewmetheus_awake_threshold_mg_per_litre
+        for: 5m
+        labels:
+          severity: P1
+        annotations:
+          summary: "P1: attention service unavailable"
+          description: "Blood caffeine is below the awake threshold. Reboot with coffee."
+
+      - alert: DegradationImminent
+        expr: brewmetheus_time_to_crash_seconds < 1800
+        labels:
+          severity: P2
+        annotations:
+          summary: "P2: degradation imminent"
+          description: "A crash is predicted within 30 minutes. The refill window is closing."
+
+      - alert: InsomniaRisk
+        expr: brewmetheus_bedtime_residual_mg_per_litre > brewmetheus_insomnia_threshold_mg_per_litre
+        labels:
+          severity: P2
+        annotations:
+          summary: "Insomnia risk tonight"
+          description: "Projected bedtime residual exceeds your insomnia threshold."
+
+      - alert: CaffeineOverload
+        expr: brewmetheus_caffeine_daily_total_mg > brewmetheus_caffeine_daily_cap_mg
+        labels:
+          severity: OVERLOAD
+        annotations:
+          summary: "Overload: throttling advised"
+          description: "Daily caffeine intake exceeds your cap. Consider easing off."
+
+      - alert: ErrorBudgetBurning
+        expr: brewmetheus_error_budget_burn_rate > 2
+        for: 10m
+        labels:
+          severity: P2
+        annotations:
+          summary: "P2: error budget burning"
+          description: "The clarity error budget is burning faster than 2x the sustainable rate."

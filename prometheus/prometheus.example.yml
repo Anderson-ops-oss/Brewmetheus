@@ -1,0 +1,17 @@
+# Minimal Prometheus config that scrapes your bloodstream.
+#
+# Run the exporter first:
+#   python -m brewmetheus.exporter
+# then start Prometheus with:
+#   prometheus --config.file=prometheus/prometheus.example.yml
+
+global:
+  scrape_interval: 30s
+
+rule_files:
+  - brewmetheus.rules.yml
+
+scrape_configs:
+  - job_name: brewmetheus
+    static_configs:
+      - targets: ["127.0.0.1:9110"]
