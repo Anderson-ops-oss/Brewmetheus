@@ -129,6 +129,10 @@ def run_notify_loop(
     Meant to run alongside the dashboard (see ``cli.main``), not as a
     replacement for the one-shot ``main`` below, which stays for cron/launchd.
     """
+    print(
+        f"[brewmetheus.notify] chained to the rock — polling every {interval_s:.0f}s.",
+        file=sys.stderr,
+    )
     last_severity: Severity | None = None
     while True:
         try:

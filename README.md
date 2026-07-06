@@ -10,6 +10,22 @@ wreck your sleep, and your daily "clarity SLA".
 
 You log what you drank and when; it does the rest.
 
+## Why "Brewmetheus"?
+
+**Brew** + **Prometheus** — and *Prometheus* is pulling triple duty:
+
+- **The monitoring system.** Prometheus is the open-source tool engineers use to
+  watch whether a service is up. Brewmetheus watches whether *you* are — hence the
+  clarity SLA, the error budget, and the P1 incidents.
+- **The Titan who stole fire.** Prometheus gave mortals fire; caffeine is the fire.
+  Zeus chained him to a rock and sent an eagle to eat his ever-regrowing **liver**,
+  day after day — and caffeine really is cleared by the liver (the CYP1A2 enzyme),
+  dose after dose. The myth's grisliest image is just this app's pharmacology.
+- **The word itself.** *Prometheus* is Greek for **"forethought"**, which is why the
+  app predicts your crash, your refill window, and tonight's residual. His
+  lesser-known brother *Epimetheus* — **"afterthought"** — is what an SRE calls a
+  postmortem.
+
 ## Features
 
 - **Live dashboard** — current blood-caffeine concentration, a 24 h projection
@@ -113,4 +129,10 @@ ruff format . && ruff check .   # format + lint
 mypy brewmetheus                # strict type checking
 pytest -q                       # tests
 ```
+
+## Disclaimers
+
+Brewmetheus is not affiliated with Prometheus the systems monitor, Prometheus the
+Titan who stole fire, or your primary care physician. The thresholds are subjective
+product knobs, not clinical values. **Not medical advice.**
 

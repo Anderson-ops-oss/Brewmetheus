@@ -1,11 +1,27 @@
-from brewmetheus.alerts import evaluate_incidents, primary_incident
+from brewmetheus.alerts import (
+    HTTP_STATUS,
+    RUNBOOKS,
+    evaluate_incidents,
+    primary_incident,
+)
 from brewmetheus.models import Incident, Severity, UserProfile
 from brewmetheus.params import derive_params
 from brewmetheus.predict import crash_time_h
 
+_ACTIONABLE_CODES = (
+    "ATTENTION_UNAVAILABLE",
+    "DEGRADATION_IMMINENT",
+    "OVERLOAD",
+    "INSOMNIA_RISK",
+)
+
 
 def _codes(incidents: list[Incident]) -> set[str]:
     return {incident.code for incident in incidents}
+
+
+def _incident(incidents: list[Incident], code: str) -> Incident:
+    return next(incident for incident in incidents if incident.code == code)
 
 
 def test_nominal_when_comfortably_awake() -> None:
@@ -60,6 +76,35 @@ def test_insomnia_risk_flagged() -> None:
     # Near the peak now (awake), but bedtime is only 1.5 h out -> high residual.
     incidents = evaluate_incidents([(0.0, 200.0)], params, profile, sleep_h=1.5, now_h=0.5)
     assert "INSOMNIA_RISK" in _codes(incidents)
+
+
+def test_cold_start_detail_when_no_intakes() -> None:
+    profile = UserProfile()
+    params = derive_params(profile)
+    incidents = evaluate_incidents([], params, profile, sleep_h=15.0)
+    assert "Cold start" in _incident(incidents, "ATTENTION_UNAVAILABLE").detail
+
+
+def test_below_threshold_with_history_is_not_cold_start() -> None:
+    profile = UserProfile()
+    params = derive_params(profile)
+    # Drank 12 h ago: essentially eliminated now -> below threshold, but not a cold start.
+    incidents = evaluate_incidents([(-12.0, 100.0)], params, profile, sleep_h=15.0)
+    detail = _incident(incidents, "ATTENTION_UNAVAILABLE").detail
+    assert "Cold start" not in detail
+    assert "Reboot with coffee" in detail
+
+
+def test_http_status_covers_every_emittable_code() -> None:
+    codes = {"SERVICE_NOMINAL", *_ACTIONABLE_CODES}
+    assert codes <= set(HTTP_STATUS)
+    assert HTTP_STATUS["INSOMNIA_RISK"] == "508 Loop Detected"
+
+
+def test_runbooks_cover_actionable_incidents_but_not_nominal() -> None:
+    for code in _ACTIONABLE_CODES:
+        assert RUNBOOKS.get(code), code
+    assert "SERVICE_NOMINAL" not in RUNBOOKS  # a nominal service needs no runbook
 
 
 def test_primary_incident_picks_highest_severity() -> None:
