@@ -112,9 +112,17 @@ def _intake_form(store: FileStore) -> None:
         names = {b.name: key for key, b in BEVERAGES.items()}
         choice = st.selectbox("Beverage", list(names.keys()))
         key = names[choice]
+        note = BEVERAGES[key].note
+        if note:
+            st.caption(note)
         if key in {"black_tea", "green_tea"}:
             st.caption(
                 "HTTP 418 — I'm a teapot (RFC 2324). This is a coffee service; logged anyway."
+            )
+        elif key == "decaf":
+            st.caption(
+                "No-op deploy — decaf ships no functional change to production. "
+                "(Death before decaf.)"
             )
         serving = st.number_input(
             "Serving (ml)", 0.0, 2000.0, BEVERAGES[key].default_serving_ml, step=10.0
