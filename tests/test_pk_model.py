@@ -9,6 +9,7 @@ from brewmetheus.models import PKParams
 from brewmetheus.pk_model import (
     auc,
     cmax,
+    concentration_band,
     concentration_curve,
     concentration_single,
     tmax_h,
@@ -109,6 +110,34 @@ def test_near_singularity_is_continuous() -> None:
     c_near = np.asarray(concentration_single(t, 100.0, p_near))
     c_limit = np.asarray(concentration_single(t, 100.0, p_limit))
     assert np.allclose(c_near, c_limit, rtol=1e-3, atol=1e-6)
+
+
+def test_band_degenerate_when_no_spread() -> None:
+    p = _params()
+    t = np.linspace(0.0, 12.0, 200)
+    intakes = [(0.0, 100.0)]
+    lower, upper = concentration_band(t, intakes, p, spread=(1.0, 1.0))
+    curve = concentration_curve(t, intakes, p)
+    assert np.allclose(lower, curve)
+    assert np.allclose(upper, curve)
+
+
+def test_band_is_ordered_and_nondegenerate() -> None:
+    p = _params()
+    t = np.linspace(0.0, 24.0, 200)
+    lower, upper = concentration_band(t, [(0.0, 100.0)], p)
+    assert np.all(upper >= lower)
+    assert np.max(upper - lower) > 0.0  # a real band, not a line
+
+
+def test_band_brackets_point_estimate_late() -> None:
+    p = _params()
+    t = np.linspace(0.0, 24.0, 200)
+    intakes = [(0.0, 100.0)]
+    lower, upper = concentration_band(t, intakes, p)
+    curve = concentration_curve(t, intakes, p)
+    # A slow metabolizer retains more late, a fast one less: the point estimate is inside.
+    assert lower[-1] <= curve[-1] <= upper[-1]
 
 
 def test_invalid_params_raise() -> None:

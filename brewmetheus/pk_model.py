@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from dataclasses import replace
 
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
@@ -93,3 +94,36 @@ def auc(dose_mg: float, params: PKParams) -> float:
     """Total exposure of a single dose: AUC = F * D / (V * ke) (analytic)."""
     _validate(params)
     return params.F * dose_mg / (params.V_l * params.ke_per_h)
+
+
+def concentration_band(
+    times_h: ArrayLike,
+    intakes: Iterable[tuple[float, float]],
+    params: PKParams,
+    spread: tuple[float, float] = (0.6, 1.7),
+) -> tuple[FloatArray, FloatArray]:
+    """Lower/upper concentration envelope across a fast-slow metabolizer half-life spread.
+
+    CYP1A2 clearance varies several-fold between people, so a single curve is quietly
+    over-confident. ``spread`` scales the effective half-life (0.6x = fast metabolizer,
+    1.7x = slow); each factor rescales ``ke`` (ke = ln2 / half-life). This is an
+    illustrative inter-individual band, NOT a fitted confidence interval. Returns
+    ``(lower, upper)`` evaluated element-wise on ``times_h``.
+    """
+    _validate(params)
+    intake_list = list(intakes)
+    curves = [
+        concentration_curve(
+            times_h,
+            intake_list,
+            replace(
+                params,
+                ke_per_h=params.ke_per_h / factor,
+                effective_half_life_h=params.effective_half_life_h * factor,
+            ),
+        )
+        for factor in spread
+    ]
+    lower = np.minimum(curves[0], curves[1])
+    upper = np.maximum(curves[0], curves[1])
+    return np.asarray(lower, dtype=np.float64), np.asarray(upper, dtype=np.float64)
