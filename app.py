@@ -8,7 +8,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from brewmetheus.alerts import evaluate_incidents, primary_incident
+from brewmetheus.alerts import HTTP_STATUS, RUNBOOKS, evaluate_incidents, primary_incident
 from brewmetheus.beverages import BEVERAGES, caffeine_for
 from brewmetheus.models import Incident, IntakeEvent, Severity, SLOReport, UserProfile
 from brewmetheus.notify import send_ntfy
@@ -37,13 +37,20 @@ def _offset_to_clock(offset_h: float, now: datetime, tz: ZoneInfo) -> str:
 
 
 def _render_status(incident: Incident) -> None:
-    text = f"**{incident.title}** — {incident.detail}"
+    status = HTTP_STATUS.get(incident.code)
+    prefix = f"`{status}` " if status else ""
+    text = f"{prefix}**{incident.title}** — {incident.detail}"
     if incident.severity is Severity.OK:
         st.success(text)
     elif incident.severity is Severity.P2:
         st.warning(text)
     else:  # P1 or OVERLOAD
         st.error(text)
+    runbook = RUNBOOKS.get(incident.code)
+    if runbook:
+        with st.expander("Runbook"):
+            for i, step in enumerate(runbook, start=1):
+                st.write(f"{i}. {step}")
 
 
 def _resolve_tz(name: str) -> ZoneInfo:
@@ -57,8 +64,14 @@ def _resolve_tz(name: str) -> ZoneInfo:
 def _sidebar_profile(store: FileStore) -> UserProfile:
     st.sidebar.header("Profile")
     current = store.load_profile()
+    weight_kg = st.sidebar.number_input("Weight (kg)", 30.0, 250.0, current.weight_kg, step=1.0)
+    st.sidebar.subheader("Hepatic clearance (CYP1A2)")
+    st.sidebar.caption(
+        "The eagle's appetite. Smoking induces the enzyme (caffeine clears faster); "
+        "oral contraceptives and pregnancy inhibit it (slower)."
+    )
     profile = UserProfile(
-        weight_kg=st.sidebar.number_input("Weight (kg)", 30.0, 250.0, current.weight_kg, step=1.0),
+        weight_kg=weight_kg,
         smoker=st.sidebar.checkbox("Smoker", current.smoker),
         oral_contraceptives=st.sidebar.checkbox("Oral contraceptives", current.oral_contraceptives),
         pregnant=st.sidebar.checkbox("Pregnant", current.pregnant),
@@ -99,6 +112,10 @@ def _intake_form(store: FileStore) -> None:
         names = {b.name: key for key, b in BEVERAGES.items()}
         choice = st.selectbox("Beverage", list(names.keys()))
         key = names[choice]
+        if key in {"black_tea", "green_tea"}:
+            st.caption(
+                "HTTP 418 — I'm a teapot (RFC 2324). This is a coffee service; logged anyway."
+            )
         serving = st.number_input(
             "Serving (ml)", 0.0, 2000.0, BEVERAGES[key].default_serving_ml, step=10.0
         )
@@ -139,8 +156,13 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
     c_now = float(concentration_curve(np.asarray([0.0]), intakes, params)[0])
     col1, col2, col3 = st.columns(3)
     col1.metric("Now (mg/L)", f"{c_now:.2f}")
+    col1.caption(f"= {c_now / 194.19 * 1000:.1f} µmol/L · caffeine Mr 194.19. We also accept SI.")
     col2.metric("Today (mg)", f"{daily_total:.0f} / {profile.daily_cap_mg:.0f}")
     col3.metric("Half-life (h)", f"{params.effective_half_life_h:.1f}")
+    st.caption(
+        f"Hepatic clearance ≈ {params.ke_per_h * params.V_l:.1f} L/h via CYP1A2 — the liver "
+        "enzyme Prometheus is famous for regrowing. The eagle's daily allotment."
+    )
 
     grid = np.linspace(0.0, FORECAST_HORIZON_H, int(FORECAST_HORIZON_H * 12) + 1)
     curve = concentration_curve(grid, intakes, params)
@@ -177,6 +199,7 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
     st.plotly_chart(fig)
 
     st.subheader("Predictions")
+    st.caption("Prometheus — literally 'forethought'. The part he was actually named for.")
     crash = crash_time_h(intakes, params, profile.awake_threshold_mg_l)
     if crash is None:
         st.write("**Crash:** not within the next 24 h.")
@@ -190,7 +213,13 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
             f"(a {STANDARD_DOSE_MG:.0f} mg cup)."
         )
     else:
-        st.write(f"**Refill:** not advised ({refill.blocked_by}).")
+        blocked_reasons = {
+            "DAILY_CAP": "you've drawn your daily ration of fire",
+            "SLEEP": "another cup now would burn past bedtime",
+            "NO_CRASH_COMING": "no crash on the horizon — nothing to refill for",
+        }
+        why = blocked_reasons.get(refill.blocked_by or "", refill.blocked_by or "unavailable")
+        st.write(f"**Refill:** not advised — {why}.")
 
     forecast = sleep_forecast(intakes, params, profile, sleep_h)
     verdict = "insomnia risk" if forecast.insomnia_risk else "should be fine"
@@ -329,6 +358,12 @@ def main() -> None:
     _notify_section(profile)
     _history_section(store, profile, tz)
     _recent_intakes(store, tz)
+    st.divider()
+    st.caption(
+        "Not medical advice. Brewmetheus is not affiliated with Prometheus the systems "
+        "monitor, Prometheus the Titan, or your physician. Thresholds are product knobs, "
+        "not clinical values."
+    )
 
 
 if __name__ == "__main__":

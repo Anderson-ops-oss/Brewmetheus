@@ -12,6 +12,43 @@ _P2_WINDOW_H = 0.5  # "crash imminent" if predicted within 30 minutes
 
 _NOMINAL = ("SERVICE_NOMINAL", "Service nominal", "Caffeine within your healthy band.")
 
+# HTTP status codes an SRE would actually reach for, keyed by incident code. Dead
+# accurate except INSOMNIA_RISK -> 508 Loop Detected (you are stuck awake in a loop),
+# the one wink. Consumed by the dashboard banner; degrades gracefully via .get().
+HTTP_STATUS: dict[str, str] = {
+    "SERVICE_NOMINAL": "200 OK",
+    "ATTENTION_UNAVAILABLE": "503 Service Unavailable",
+    "DEGRADATION_IMMINENT": "503 Service Unavailable (degraded)",
+    "OVERLOAD": "429 Too Many Requests",
+    "INSOMNIA_RISK": "508 Loop Detected",
+}
+
+# On-call runbooks, keyed by incident code. Kept clinical on purpose: the humor is
+# the deadpan register, not jokey copy. Step 1 of an outage is its own confirmation.
+RUNBOOKS: dict[str, list[str]] = {
+    "ATTENTION_UNAVAILABLE": [
+        "Confirm the outage: still re-reading this line? Confirmed.",
+        "Apply standard remediation: 1x drip coffee (95 mg).",
+        "Expected recovery ~40 min (see the half-life). Do not stack doses.",
+        "Unresolved after 2 cups? Escalate to a 20-minute nap.",
+    ],
+    "DEGRADATION_IMMINENT": [
+        "A crash is predicted shortly; the refill window is closing.",
+        "Apply a standard dose now to hold above the awake threshold.",
+        "Consult the refill window below before it advises against it.",
+    ],
+    "OVERLOAD": [
+        "Stop ingesting: you are over your safe ceiling or daily cap.",
+        "No remediation required — the service self-heals as caffeine clears.",
+        "Do not treat overload with more coffee. That is not a rollback.",
+    ],
+    "INSOMNIA_RISK": [
+        "Freeze further intake for today (change freeze in effect).",
+        "Verify no hidden dependencies: decaf, chocolate, pre-workout.",
+        "If residual persists, accept degraded sleep as a known issue.",
+    ],
+}
+
 
 def evaluate_incidents(
     intakes: Iterable[tuple[float, float]],
@@ -30,13 +67,19 @@ def evaluate_incidents(
 
     # Awake status: already crashed (P1), or about to (P2).
     if c_now < profile.awake_threshold_mg_l:
+        if intake_list:
+            detail = (
+                f"Blood caffeine {c_now:.2f} mg/L is below your awake threshold "
+                f"({profile.awake_threshold_mg_l:.2f}). Reboot with coffee."
+            )
+        else:
+            detail = "Cold start: no caffeine in the system. But first, coffee."
         incidents.append(
             Incident(
                 severity=Severity.P1,
                 code="ATTENTION_UNAVAILABLE",
                 title="P1: attention service unavailable",
-                detail=f"Blood caffeine {c_now:.2f} mg/L is below your awake threshold "
-                f"({profile.awake_threshold_mg_l:.2f}). Reboot with coffee.",
+                detail=detail,
                 at_h=now_h,
             )
         )
