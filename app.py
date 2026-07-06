@@ -13,7 +13,8 @@ from brewmetheus.beverages import BEVERAGES, caffeine_for
 from brewmetheus.models import Incident, IntakeEvent, Severity, SLOReport, UserProfile
 from brewmetheus.notify import send_ntfy
 from brewmetheus.params import derive_params
-from brewmetheus.pk_model import auc, concentration_curve
+from brewmetheus.pk_model import auc, concentration_band, concentration_curve
+from brewmetheus.postmortem import render_postmortem
 from brewmetheus.predict import crash_time_h, refill_window_h, sleep_forecast
 from brewmetheus.render import render_badge, render_card
 from brewmetheus.slo import day_slo, golden_signals
@@ -179,9 +180,33 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
 
     grid = np.linspace(0.0, FORECAST_HORIZON_H, int(FORECAST_HORIZON_H * 12) + 1)
     curve = concentration_curve(grid, intakes, params)
+    band_low, band_high = concentration_band(grid, intakes, params)
     times = [(now + timedelta(hours=float(h))).astimezone(tz).replace(tzinfo=None) for h in grid]
 
     fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=times,
+            y=band_low,
+            mode="lines",
+            line={"width": 0},
+            hoverinfo="skip",
+            showlegend=False,
+            name="fast metabolizer",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=times,
+            y=band_high,
+            mode="lines",
+            line={"width": 0},
+            fill="tonexty",
+            fillcolor="rgba(130,130,130,0.18)",
+            hoverinfo="skip",
+            name="metabolizer band",
+        )
+    )
     fig.add_trace(go.Scatter(x=times, y=curve, mode="lines", name="caffeine (mg/L)"))
     fig.add_trace(
         go.Scatter(
@@ -210,6 +235,10 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
     )
     fig.update_xaxes(tickformat="%m-%d %H:%M", hoverformat="%m-%d %H:%M")
     st.plotly_chart(fig)
+    st.caption(
+        "Shaded: fast–slow metabolizer band (CYP1A2 t½ 0.6–1.7×). Your true clearance "
+        "is unmeasured; we assume a spherical liver."
+    )
 
     st.subheader("Predictions")
     st.caption("Prometheus — literally 'forethought'. The part he was actually named for.")
@@ -261,7 +290,9 @@ def _compute_today_slo(store: FileStore, profile: UserProfile, now: datetime) ->
     )
 
 
-def _slo_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
+def _slo_section(
+    report: SLOReport | None, profile: UserProfile, now: datetime, tz: ZoneInfo
+) -> None:
     st.subheader("Reliability (SLO)")
     if report is None:
         st.info("Set bedtime later than wake time to compute the SLO.")
@@ -298,6 +329,21 @@ def _slo_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
             start = _offset_to_clock(crash.start_h, now, tz)
             end = _offset_to_clock(crash.end_h, now, tz)
             st.write(f"{i}. {start}–{end} · down {crash.duration_h * 60:.0f} min")
+        st.caption(
+            "Epimetheus — 'afterthought', Prometheus's brother. The SRE calls it a postmortem."
+        )
+        postmortem = render_postmortem(
+            report,
+            now.astimezone(tz).strftime("%Y-%m-%d"),
+            profile.awake_threshold_mg_l,
+            lambda h: _offset_to_clock(h, now, tz),
+        )
+        st.download_button(
+            "Download postmortem (.md)",
+            postmortem,
+            "caffeine-postmortem.md",
+            "text/markdown",
+        )
     else:
         st.write("**No P1 incidents today — all systems operational.**")
 
@@ -405,7 +451,7 @@ def main() -> None:
     now = datetime.now(timezone.utc)
     report = _compute_today_slo(store, profile, now)
     _golden_signals_section(store, profile, report, now, tz)
-    _slo_section(report, now, tz)
+    _slo_section(report, profile, now, tz)
     _share_section(report, now, tz)
     _notify_section(profile)
     _history_section(store, profile, tz)
