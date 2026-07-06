@@ -13,10 +13,10 @@ from brewmetheus.beverages import BEVERAGES, caffeine_for
 from brewmetheus.models import Incident, IntakeEvent, Severity, SLOReport, UserProfile
 from brewmetheus.notify import send_ntfy
 from brewmetheus.params import derive_params
-from brewmetheus.pk_model import concentration_curve
+from brewmetheus.pk_model import auc, concentration_curve
 from brewmetheus.predict import crash_time_h, refill_window_h, sleep_forecast
 from brewmetheus.render import render_badge, render_card
-from brewmetheus.slo import day_slo
+from brewmetheus.slo import day_slo, golden_signals
 from brewmetheus.store import FileStore
 from brewmetheus.timeutil import day_window_offsets, resolve_sleep_offset, to_offsets
 
@@ -162,11 +162,16 @@ def _live_dashboard(store: FileStore, profile: UserProfile, tz: ZoneInfo) -> Non
     _render_status(primary_incident(incidents))
 
     c_now = float(concentration_curve(np.asarray([0.0]), intakes, params)[0])
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     col1.metric("Now (mg/L)", f"{c_now:.2f}")
     col1.caption(f"= {c_now / 194.19 * 1000:.1f} µmol/L · caffeine Mr 194.19. We also accept SI.")
     col2.metric("Today (mg)", f"{daily_total:.0f} / {profile.daily_cap_mg:.0f}")
     col3.metric("Half-life (h)", f"{params.effective_half_life_h:.1f}")
+    col4.metric(
+        "Exposure (AUC)",
+        f"{auc(daily_total, params):.0f} mg·h/L",
+        help="Committed total exposure of today's intake (area under the curve, t→∞).",
+    )
     st.caption(
         f"Hepatic clearance ≈ {params.ke_per_h * params.V_l:.1f} L/h via CYP1A2 — the liver "
         "enzyme Prometheus is famous for regrowing. The eagle's daily allotment."
@@ -246,7 +251,13 @@ def _compute_today_slo(store: FileStore, profile: UserProfile, now: datetime) ->
     intakes = to_offsets(store.get_recent_intakes(within_h=MODEL_WINDOW_H, now=now), reference=now)
     params = derive_params(profile)
     return day_slo(
-        intakes, params, wake_h, sleep_h, profile.awake_threshold_mg_l, profile.clarity_sla_target
+        intakes,
+        params,
+        wake_h,
+        sleep_h,
+        profile.awake_threshold_mg_l,
+        profile.clarity_sla_target,
+        now_h=0.0,  # offsets are relative to now, so "now" is the origin
     )
 
 
@@ -273,6 +284,14 @@ def _slo_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
         f"MTTR {mttr_txt} · avg concentration {report.avg_mg_l:.2f} mg/L over the waking window."
     )
 
+    if report.burn_rate is not None:
+        burn = f"Error budget burn rate: {report.burn_rate:.1f}×"
+        if report.budget_exhaustion_h is not None:
+            burn += (
+                f" — budget exhausted by ~{_offset_to_clock(report.budget_exhaustion_h, now, tz)}"
+            )
+        st.caption(burn + ".")
+
     if report.crashes:
         st.write("**Incident log (P1):**")
         for i, crash in enumerate(report.crashes, start=1):
@@ -281,6 +300,30 @@ def _slo_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
             st.write(f"{i}. {start}–{end} · down {crash.duration_h * 60:.0f} min")
     else:
         st.write("**No P1 incidents today — all systems operational.**")
+
+
+def _golden_signals_section(
+    store: FileStore, profile: UserProfile, report: SLOReport | None, now: datetime, tz: ZoneInfo
+) -> None:
+    st.subheader("Golden signals")
+    if report is None:
+        st.info("Set bedtime later than wake time to compute the golden signals.")
+        return
+    params = derive_params(profile)
+    daily_total = store.daily_total_mg(now.astimezone(tz).date(), profile)
+    sig = golden_signals(params, daily_total, profile.daily_cap_mg, report.downtime_so_far_h or 0.0)
+    st.caption("The four signals Google's SRE book says to watch above all else.")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(
+        "Latency", f"{sig.latency_h * 60:.0f} min", help="Tmax — a dose's time to peak effect."
+    )
+    c2.metric("Traffic", f"{sig.traffic_mg:.0f} mg", help="Caffeine ingested today.")
+    c3.metric(
+        "Errors", f"{sig.errors_h * 60:.0f} min", help="Minutes below the awake threshold today."
+    )
+    c4.metric(
+        "Saturation", f"{sig.saturation_ratio * 100:.0f}%", help="Share of your daily cap used."
+    )
 
 
 def _share_section(report: SLOReport | None, now: datetime, tz: ZoneInfo) -> None:
@@ -361,6 +404,7 @@ def main() -> None:
     _live_dashboard(store, profile, tz)
     now = datetime.now(timezone.utc)
     report = _compute_today_slo(store, profile, now)
+    _golden_signals_section(store, profile, report, now, tz)
     _slo_section(report, now, tz)
     _share_section(report, now, tz)
     _notify_section(profile)
