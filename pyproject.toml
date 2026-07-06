@@ -16,6 +16,7 @@ dependencies = [
     "pandas>=2.0",
     "streamlit>=1.30",
     "tzlocal>=5.0",
+    "plotly>=5.18",
 ]
 
 [project.optional-dependencies]
@@ -49,7 +50,7 @@ warn_unused_configs = true
 
 # Third-party libraries that ship no type stubs.
 [[tool.mypy.overrides]]
-module = ["scipy.*", "tzlocal.*"]
+module = ["scipy.*", "tzlocal.*", "plotly.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

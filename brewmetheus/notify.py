@@ -16,6 +16,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
+import time
 import urllib.request
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
@@ -28,6 +30,7 @@ from brewmetheus.timeutil import resolve_sleep_offset, to_offsets
 
 _DEFAULT_SERVER = "https://ntfy.sh"
 _MODEL_WINDOW_H = 48.0
+_DEFAULT_LOOP_INTERVAL_S = 180.0  # 3 min; under the "must notice within 5 min" target
 
 # ntfy (priority, emoji tag) per severity.
 _SEVERITY_META: dict[Severity, tuple[str, str]] = {
@@ -72,6 +75,21 @@ def should_notify(incidents: list[Incident], min_severity: Severity) -> Incident
     return primary if primary.severity >= min_severity else None
 
 
+def should_notify_on_change(
+    current_severity: Severity, last_severity: Severity | None, min_severity: Severity
+) -> bool:
+    """True if the severity changed and either side is at/above ``min_severity``."""
+    return current_severity != last_severity and (
+        current_severity >= min_severity
+        or (last_severity is not None and last_severity >= min_severity)
+    )
+
+
+def _push_incident(topic: str, incident: Incident, server: str) -> None:
+    priority, tags = _SEVERITY_META.get(incident.severity, ("default", ""))
+    send_ntfy(topic, incident.title, incident.detail, priority=priority, tags=tags, server=server)
+
+
 def notify_incidents(
     topic: str,
     incidents: list[Incident],
@@ -83,8 +101,7 @@ def notify_incidents(
     incident = should_notify(incidents, min_severity)
     if incident is None:
         return False
-    priority, tags = _SEVERITY_META.get(incident.severity, ("default", ""))
-    send_ntfy(topic, incident.title, incident.detail, priority=priority, tags=tags, server=server)
+    _push_incident(topic, incident, server)
     return True
 
 
@@ -98,6 +115,32 @@ def _current_incidents(store: FileStore) -> list[Incident]:
     today = now.astimezone(ZoneInfo(profile.timezone)).date()
     daily_total = store.daily_total_mg(today, profile)
     return evaluate_incidents(intakes, params, profile, sleep_h, current_daily_total_mg=daily_total)
+
+
+def run_notify_loop(
+    store: FileStore,
+    *,
+    interval_s: float = _DEFAULT_LOOP_INTERVAL_S,
+    min_severity: Severity = Severity.P2,
+    server: str = _DEFAULT_SERVER,
+) -> None:
+    """Poll forever, pushing only on a severity change (escalation or recovery).
+
+    Meant to run alongside the dashboard (see ``cli.main``), not as a
+    replacement for the one-shot ``main`` below, which stays for cron/launchd.
+    """
+    last_severity: Severity | None = None
+    while True:
+        try:
+            topic = store.load_profile().ntfy_topic
+            if topic:
+                primary = primary_incident(_current_incidents(store))
+                if should_notify_on_change(primary.severity, last_severity, min_severity):
+                    _push_incident(topic, primary, server)
+                last_severity = primary.severity
+        except Exception as exc:  # a single failed poll must not kill the loop
+            print(f"[brewmetheus.notify] poll failed: {exc}", file=sys.stderr)
+        time.sleep(interval_s)
 
 
 def main() -> None:
